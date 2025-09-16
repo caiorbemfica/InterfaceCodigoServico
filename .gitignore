@@ -1,0 +1,12 @@
+# Node / Vue
+node_modules/
+dist/
+frontend/package-lock.json
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.env
+backend/firebase-sdk.json
