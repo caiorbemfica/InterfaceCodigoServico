@@ -128,6 +128,7 @@
 <script lang="ts">
 import { defineComponent, ref } from 'vue'
 import axios from 'axios'
+import { cache } from '@/servicesCache'
 import { Produto, Servico } from '@/types'
 
 interface FormState {
@@ -184,8 +185,8 @@ export default defineComponent({
       this.produtos = (await axios.get<Produto[]>('http://127.0.0.1:8000/produtos')).data
       
       // Carregar URAs únicas
-      const response = await axios.get<Servico[]>('http://127.0.0.1:8000/servicos')
-      this.uras = [...new Set(response.data.map(s => s.ura))].sort()
+      this.uras = [...new Set(cache.servicos.map(s => s.ura))].sort()
+
 
       // Modo edição
       if (this.$route.query.edit) {
@@ -231,6 +232,7 @@ export default defineComponent({
           opcao: this.form.opcao,
           tema: this.form.tema ?? '',
           codigo_servico_produto: this.form.codigo_servico_produto ?? '',
+          submenu: this.form.submenu ?? '',
         }
         delete (payload as any).tipo
         delete (payload as any).opcaoNome
@@ -239,9 +241,12 @@ export default defineComponent({
         if (this.isEdit) {
           response = await axios.put(`http://127.0.0.1:8000/servico/${this.$route.query.edit}`, payload)
           this.modalCodigo = response.data.codigo_servico_produto
+          const index = cache.servicos.findIndex(s => s.codigo_servico_produto === this.form.codigo_servico_produto)
+          if (index >= 0) cache.servicos[index] = response.data
         } else {
           response = await axios.post('http://127.0.0.1:8000/servicos', payload)
           this.modalCodigo = response.data.codigo_servico_produto
+          cache.servicos.push(response.data)
         }
 
         this.showModal = true

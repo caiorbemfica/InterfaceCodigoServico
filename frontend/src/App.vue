@@ -10,7 +10,7 @@
         <div class="space-x-4">
           <router-link to="/" class="hover:text-[#00ae9d] transition">Home</router-link>
           <router-link to="/services" class="hover:text-[#00ae9d] transition">Serviços</router-link>
-          <router-link to="/create-service" class="hover:text-[#00ae9d] transition">Criar Serviço</router-link>
+          <!--<router-link to="/create-service" class="hover:text-[#00ae9d] transition">Criar Serviço</router-link>-->
           <router-link to="/products" class="hover:text-[#00ae9d] transition">Produtos</router-link>
         </div>
       </div>

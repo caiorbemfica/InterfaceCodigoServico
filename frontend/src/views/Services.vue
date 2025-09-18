@@ -2,6 +2,9 @@
   <div class="w-full p-4 lg:p-6">
     <h2 class="text-3xl font-bold text-[#003641] mb-6">Consulta de Serviços</h2>
     <div v-if="!isLoading" class="space-y-6">
+      <button @click="$router.push('/create-service')" class="bg-[#1fa193] text-white p-3 rounded-lg">
+      Criar Serviço
+    </button>
       <!-- Campo de busca por código -->
       <div class="mb-4 flex gap-4">
         <div class="flex-1">
@@ -123,6 +126,7 @@
 
 <script lang="ts">
 import { defineComponent, ref, computed, watch } from 'vue'
+import { cache } from '@/servicesCache'
 import axios from 'axios'
 import Papa from 'papaparse'
 import { Servico } from '@/types'
@@ -190,52 +194,53 @@ export default defineComponent({
     },
   },
   async mounted() {
-    const cachedProdutos = localStorage.getItem('cachedProdutos')
-    const cachedServicos = localStorage.getItem('cachedServicos')
-    const cachedTimestamp = localStorage.getItem('cacheTimestamp')
+  // 1️⃣ Carrega do cache em memória, se houver
+  if (Date.now() - cache.lastFetch < this.cacheDuration && cache.servicos.length > 0) {
+    this.servicos = cache.servicos
+    this.produtos = cache.produtos
+    console.log('Dados carregados do cache em memória')
+    return
+  }
 
-    if (cachedProdutos && cachedServicos && cachedTimestamp) {
-      const timestamp = parseInt(cachedTimestamp, 10)
-      if (Date.now() - timestamp < this.cacheDuration) {
-        this.produtos = JSON.parse(cachedProdutos)
-        this.servicos = JSON.parse(cachedServicos)
-        this.cacheTimestamp = timestamp
-        console.log('Carregado do cache:', this.produtos.length, 'produtos,', this.servicos.length, 'serviços')
-        return
-      }
+  // 2️⃣ Carrega do localStorage se memória estiver vazia
+  const cachedServicos = localStorage.getItem('cachedServicos')
+  const cachedProdutos = localStorage.getItem('cachedProdutos')
+  const cachedTimestamp = localStorage.getItem('cacheTimestamp')
+
+  if (cachedServicos && cachedProdutos && cachedTimestamp) {
+    const timestamp = parseInt(cachedTimestamp, 10)
+    if (Date.now() - timestamp < this.cacheDuration) {
+      this.servicos = JSON.parse(cachedServicos)
+      this.produtos = JSON.parse(cachedProdutos)
+      cache.servicos = this.servicos
+      cache.produtos = this.produtos
+      cache.lastFetch = timestamp
+      console.log('Dados carregados do localStorage')
+      return
     }
+  }
 
-    this.isLoading = true
-    try {
-      const servicosRes = await axios.get<Servico[]>('http://127.0.0.1:8000/servicos', { timeout: 30000 })
-      this.servicos = servicosRes.data
-      this.produtos = [...new Set(this.servicos.map(s => s.produto))].sort()
-      this.cacheTimestamp = Date.now()
-      localStorage.setItem('cachedProdutos', JSON.stringify(this.produtos))
-      localStorage.setItem('cachedServicos', JSON.stringify(this.servicos))
-      localStorage.setItem('cacheTimestamp', this.cacheTimestamp.toString())
-      console.log('Carregado da API:', this.produtos.length, 'produtos,', this.servicos.length, 'serviços')
+  // 3️⃣ Se cache vazio ou expirado, chama API
+  this.isLoading = true
+  try {
+    const res = await axios.get('http://127.0.0.1:8000/servicos', { timeout: 30000 })
+    this.servicos = res.data
+    this.produtos = [...new Set(this.servicos.map(s => s.produto))].sort()
+
+    // atualiza cache em memória
+    cache.servicos = this.servicos
+    cache.produtos = this.produtos
+    cache.lastFetch = Date.now()
+
+    // atualiza localStorage
+    localStorage.setItem('cachedServicos', JSON.stringify(this.servicos))
+    localStorage.setItem('cachedProdutos', JSON.stringify(this.produtos))
+    localStorage.setItem('cacheTimestamp', cache.lastFetch.toString())
+
+    console.log('Dados carregados da API')
     } catch (error: any) {
       console.error('Erro ao carregar dados:', error)
-      if (error.code === 'ECONNABORTED') {
-        alert('Timeout ao carregar dados. Usando cache, se disponível.')
-        if (cachedProdutos && cachedServicos) {
-          this.produtos = JSON.parse(cachedProdutos)
-          this.servicos = JSON.parse(cachedServicos)
-        } else {
-          alert('Erro ao carregar dados: ' + error.message)
-        }
-      } else if (error.response?.status === 429) {
-        alert('Quota excedida. Usando cache, se disponível.')
-        if (cachedProdutos && cachedServicos) {
-          this.produtos = JSON.parse(cachedProdutos)
-          this.servicos = JSON.parse(cachedServicos)
-        } else {
-          alert('Erro: Quota excedida e sem cache disponível.')
-        }
-      } else {
-        alert('Erro ao carregar dados: ' + error.message)
-      }
+      alert('Erro ao carregar dados: ' + error.message)
     } finally {
       this.isLoading = false
     }
