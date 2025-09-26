@@ -32,21 +32,21 @@
       <!-- Filtros existentes -->
       <div class="mb-4 flex flex-col sm:flex-row gap-4">
         <select
-          v-model="filtroProduto"
+          v-model="filtroUra"
           @change="updateMenus"
           class="border border-[#75b62f] p-3 rounded-lg focus:ring-2 focus:ring-[#1fa193] focus:border-transparent"
           :disabled="!!filtroCodigo"
         >
-          <option value="">Todos os Produtos</option>
-          <option v-for="produto in produtos" :key="produto" :value="produto">{{ produto }}</option>
+          <option value="">Todas as URAs</option>
+          <option v-for="ura in uras" :key="ura" :value="ura">{{ ura }}</option>
         </select>
         <select
           v-model="filtroMenu"
           class="w-full border border-[#75b62f] p-3 rounded-lg focus:ring-2 focus:ring-[#1fa193] focus:border-transparent"
-          :disabled="!filtroProduto || !!filtroCodigo"
+          :disabled="!filtroUra || !!filtroCodigo"
         >
           <option value="">Todos os Menus</option>
-          <option v-if="!filtroProduto" disabled value="">Selecione primeiro um produto para ver os menus referentes</option>
+          <option v-if="!filtroUra" disabled value="">Selecione primeiro uma URA para ver os menus referentes</option>
           <option v-for="menu in menusUnicos" :key="menu" :value="menu">{{ menu }}</option>
         </select>
         <button
@@ -60,7 +60,17 @@
         <table class="w-full border-collapse">
           <thead>
             <tr class="bg-[#75b62f] text-white">
-              <th class="border border-[#75b62f] p-3 font-semibold">URA</th>
+              <th class="border border-[#75b62f] p-3 font-semibold">
+                <button 
+                  @click="toggleSort" 
+                  class="flex items-center gap-2 hover:text-gray-200 transition-colors"
+                >
+                  URA
+                  <span class="text-sm">
+                    {{ sortOrder === 'asc' ? '↑' : '↓' }}
+                  </span>
+                </button>
+              </th>
               <th class="border border-[#75b62f] p-3 font-semibold">Caminho</th>
               <th class="border border-[#75b62f] p-3 font-semibold">Código</th>
               <th class="border border-[#75b62f] p-3 font-semibold">Produto</th>
@@ -71,7 +81,7 @@
             </tr>
           </thead>
           <tbody>
-            <tr v-for="servico in filteredServicos" :key="servico.codigo_servico_produto" class="hover:bg-gray-50">
+            <tr v-for="servico in sortedServicos" :key="servico.codigo_servico_produto" class="hover:bg-gray-50">
               <td class="border border-[#75b62f] p-1 text-[#003641]">{{ servico.ura }}</td>
               <td class="border border-[#75b62f] p-1 text-[#003641]">{{ servico.caminho }}</td>
               <td class="border border-[#75b62f] p-1 text-[#003641]">{{ servico.codigo_servico_produto }}</td>
@@ -126,7 +136,7 @@
 
 <script lang="ts">
 import { defineComponent, ref, computed, watch } from 'vue'
-import { cache } from '@/servicesCache'
+import { cache } from '../servicesCache'
 import axios from 'axios'
 import Papa from 'papaparse'
 import { Servico } from '@/types'
@@ -140,9 +150,9 @@ export default defineComponent({
   },
   data() {
     return {
-      produtos: [] as string[],
+      uras: [] as string[],
       servicos: [] as Servico[],
-      filtroProduto: '',
+      filtroUra: '',
       filtroMenu: '',
       filtroCodigo: '',
       servicoPorCodigo: null as Servico | null, // Armazena o serviço retornado pela busca por código
@@ -150,20 +160,21 @@ export default defineComponent({
       cacheDuration: 5 * 60 * 1000,
       showDeleteModal: false,
       servicoParaExcluir: '',
+      sortOrder: 'asc' as 'asc' | 'desc',
     }
   },
   computed: {
     menusUnicos(): string[] {
-      console.log('filtroProduto:', this.filtroProduto)
-      if (!this.filtroProduto) {
+      console.log('filtroUra:', this.filtroUra)
+      if (!this.filtroUra) {
         return []
       }
       return [...new Set(this.servicos
-        .filter(s => s.produto === this.filtroProduto)
+        .filter(s => s.ura === this.filtroUra)
         .map(s => s.menu))].sort()
     },
     filteredServicos(): Servico[] {
-      console.log('Filtrando com filtroProduto:', this.filtroProduto, 'filtroMenu:', this.filtroMenu, 'filtroCodigo:', this.filtroCodigo)
+      console.log('Filtrando com filtroUra:', this.filtroUra, 'filtroMenu:', this.filtroMenu, 'filtroCodigo:', this.filtroCodigo)
       // Se houver um filtro por código, exibe apenas o serviço retornado
       if (this.filtroCodigo && this.servicoPorCodigo) {
         return [this.servicoPorCodigo]
@@ -172,22 +183,30 @@ export default defineComponent({
         return []
       }
       // Caso contrário, aplica a filtragem padrão por produto e menu
-      if (!this.filtroProduto && !this.filtroMenu) {
+      if (!this.filtroUra && !this.filtroMenu) {
         console.log('Nenhum filtro, retornando todos os serviços:', this.servicos.length)
         return this.servicos
       }
       const filtered = this.servicos.filter(s => {
-        const matchesProduct = !this.filtroProduto || s.produto === this.filtroProduto
+        const matchesUra = !this.filtroUra || s.ura === this.filtroUra
         const matchesMenu = !this.filtroMenu || s.menu === this.filtroMenu
-        console.log('Serviço:', s, 'matchesProduct:', matchesProduct, 'matchesMenu:', matchesMenu)
-        return matchesProduct && matchesMenu
+        console.log('Serviço:', s, 'matchesUra:', matchesUra, 'matchesMenu:', matchesMenu)
+        return matchesUra && matchesMenu
       })
-      console.log('filteredServicos:', filtered.length)
       return filtered
     },
+    sortedServicos(): Servico[] {
+      return [...this.filteredServicos].sort((a, b) => {
+        if (this.sortOrder === 'asc') {
+          return a.ura.localeCompare(b.ura)
+        } else {
+          return b.ura.localeCompare(a.ura)
+        }
+      })
+    }
   },
   watch: {
-    filtroProduto(newValue) {
+    filtroUra(newValue) {
       if (newValue) {
         this.filtroMenu = ''
       }
@@ -195,26 +214,25 @@ export default defineComponent({
   },
   async mounted() {
   // 1️⃣ Carrega do cache em memória, se houver
-  if (Date.now() - cache.lastFetch < this.cacheDuration && cache.servicos.length > 0) {
+  if (Date.now() - cache.lastFetchServicos < this.cacheDuration && cache.servicos.length > 0) {
     this.servicos = cache.servicos
-    this.produtos = cache.produtos
+    this.uras = [...new Set(this.servicos.map(s => s.ura))].sort()
     console.log('Dados carregados do cache em memória')
     return
   }
 
   // 2️⃣ Carrega do localStorage se memória estiver vazia
   const cachedServicos = localStorage.getItem('cachedServicos')
-  const cachedProdutos = localStorage.getItem('cachedProdutos')
+  const cachedUras = localStorage.getItem('cachedUras')
   const cachedTimestamp = localStorage.getItem('cacheTimestamp')
 
-  if (cachedServicos && cachedProdutos && cachedTimestamp) {
+  if (cachedServicos && cachedUras && cachedTimestamp) {
     const timestamp = parseInt(cachedTimestamp, 10)
     if (Date.now() - timestamp < this.cacheDuration) {
       this.servicos = JSON.parse(cachedServicos)
-      this.produtos = JSON.parse(cachedProdutos)
+      this.uras = JSON.parse(cachedUras)
       cache.servicos = this.servicos
-      cache.produtos = this.produtos
-      cache.lastFetch = timestamp
+      cache.lastFetchServicos = timestamp
       console.log('Dados carregados do localStorage')
       return
     }
@@ -225,17 +243,16 @@ export default defineComponent({
   try {
     const res = await axios.get('http://127.0.0.1:8000/servicos', { timeout: 30000 })
     this.servicos = res.data
-    this.produtos = [...new Set(this.servicos.map(s => s.produto))].sort()
+    this.uras = [...new Set(this.servicos.map(s => s.ura))].sort()
 
     // atualiza cache em memória
     cache.servicos = this.servicos
-    cache.produtos = this.produtos
-    cache.lastFetch = Date.now()
+    cache.lastFetchServicos = Date.now()
 
     // atualiza localStorage
     localStorage.setItem('cachedServicos', JSON.stringify(this.servicos))
-    localStorage.setItem('cachedProdutos', JSON.stringify(this.produtos))
-    localStorage.setItem('cacheTimestamp', cache.lastFetch.toString())
+    localStorage.setItem('cachedUras', JSON.stringify(this.uras))
+    localStorage.setItem('cacheTimestamp', cache.lastFetchServicos.toString())
 
     console.log('Dados carregados da API')
     } catch (error: any) {
@@ -246,6 +263,9 @@ export default defineComponent({
     }
   },
   methods: {
+    toggleSort() {
+      this.sortOrder = this.sortOrder === 'asc' ? 'desc' : 'asc'
+    },
     async buscarPorCodigo() {
       if (!this.filtroCodigo) {
         this.servicoPorCodigo = null
@@ -275,7 +295,7 @@ export default defineComponent({
     limparBusca() {
       this.filtroCodigo = ''
       this.servicoPorCodigo = null
-      this.filtroProduto = ''
+      this.filtroUra = ''
       this.filtroMenu = ''
     },
     editServico(servico: Servico) {
@@ -290,9 +310,9 @@ export default defineComponent({
       try {
         await axios.delete(`http://127.0.0.1:8000/servico/${this.servicoParaExcluir}`, { timeout: 30000 })
         this.servicos = this.servicos.filter(s => s.codigo_servico_produto !== this.servicoParaExcluir)
-        this.produtos = [...new Set(this.servicos.map(s => s.produto))].sort()
+        this.uras = [...new Set(this.servicos.map(s => s.ura))].sort()
         localStorage.setItem('cachedServicos', JSON.stringify(this.servicos))
-        localStorage.setItem('cachedProdutos', JSON.stringify(this.produtos))
+        localStorage.setItem('cachedUras', JSON.stringify(this.uras))
         
         if (this.servicoPorCodigo && this.servicoPorCodigo.codigo_servico_produto === this.servicoParaExcluir) {
           this.limparBusca()

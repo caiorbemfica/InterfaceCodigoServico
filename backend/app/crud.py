@@ -1,6 +1,6 @@
 # app/crud.py
 from app.firebase import db
-from app.utils import gerar_codigo_produto, gerar_codigo_servico
+from app.utils import gerar_codigo_produto
 from app.firebase import (
     get_produtos, get_servicos, get_servico_by_codigo, delete_servico_by_codigo,
     delete_servico_by_opcao, add_produto_to_firestore, add_servico_to_firestore, update_servico_in_firestore
@@ -72,20 +72,91 @@ def consultar_servico_por_codigo(codigo: str):
         raise
 
 # Função para adicionar serviço na tabela precificacao
+def _extrair_codigo_triple(codigo: str):
+    # Espera formato: "1_" + 6 dígitos (pp mm oo)
+    try:
+        if isinstance(codigo, str) and codigo.startswith('1_'):
+            resto = codigo[2:]
+            if len(resto) >= 6 and resto[:6].isdigit():
+                prod2 = resto[:2]
+                menu2 = resto[2:4]
+                opt2 = resto[4:6]
+                return prod2, menu2, opt2
+    except Exception:
+        pass
+    return None, None, None
+
+def _gerar_codigo_servico_triplo(db, produto_codigo: str, menu_nome: str | None):
+    # produto_codigo esperado como "NN_" (ex: "10_") ou algo que permita extrair NN
+    prod2 = ''
+    if isinstance(produto_codigo, str):
+        # tenta XX_ -> XX
+        if len(produto_codigo) >= 2 and produto_codigo[:2].isdigit():
+            prod2 = produto_codigo[:2]
+        else:
+            # caso venha nome, não temos como inferir; default 00
+            prod2 = '00'
+    else:
+        prod2 = '00'
+
+    # Varre a coleção e coleta códigos válidos do mesmo produto
+    docs = db.collection('precificacao').stream()
+    codigos_mesmo_produto = []
+    codigos_mesmo_menu = []
+    for doc in docs:
+        d = doc.to_dict()
+        cod = d.get('codigo', '') or d.get('codigo_servico_produto', '')
+        mnome = d.get('menu', '')
+        p = d.get('produto', '')
+        p2, m2, o2 = _extrair_codigo_triple(cod)
+        if p2 == prod2:
+            codigos_mesmo_produto.append((m2, o2, cod, mnome))
+            if menu_nome and isinstance(menu_nome, str) and mnome == menu_nome:
+                codigos_mesmo_menu.append((m2, o2, cod))
+
+    # Se menu fornecido → usa mesmo menu2 e incrementa opção
+    if menu_nome:
+        # tenta descobrir menu2 a partir dos códigos existentes do mesmo menu
+        menu2_existente = None
+        max_opt = 0
+        for m2, o2, _ in codigos_mesmo_menu:
+            if m2 and o2 and o2.isdigit():
+                max_opt = max(max_opt, int(o2))
+                # assume que todos do mesmo menu têm o mesmo m2; captura o primeiro não nulo
+                if not menu2_existente and m2.isdigit():
+                    menu2_existente = m2
+        if not menu2_existente:
+            # menu novo para esse produto: descobrir o próximo menu2
+            max_menu = 0
+            for m2, _, _, _ in codigos_mesmo_produto:
+                if m2 and m2.isdigit():
+                    max_menu = max(max_menu, int(m2))
+            menu2_existente = f"{max_menu + 1:02d}"
+            max_opt = 0
+        opt2_novo = f"{max_opt + 1:02d}"
+        return f"1_{prod2}{menu2_existente}{opt2_novo}"
+
+    # Sem menu fornecido (criando novo menu): pega maior menu e incrementa; opção inicia em 01
+    max_menu = 0
+    for m2, _, _, _ in codigos_mesmo_produto:
+        if m2 and m2.isdigit():
+            max_menu = max(max_menu, int(m2))
+    novo_menu2 = f"{max_menu + 1:02d}"
+    return f"1_{prod2}{novo_menu2}01"
+
+
 def adicionar_servico(servico_data):
     try:
         # Verifica se já existe um serviço com o mesmo código_servico_produto
         docs = db.collection('precificacao').stream()
         codigos_existentes = [doc.to_dict().get('codigo_servico_produto', '') for doc in docs]
         
-        # Gera o código do serviço
-        codigo = gerar_codigo_servico(
+        # Gera o código do serviço no formato 1_PPMMOO
+        codigo = _gerar_codigo_servico_triplo(
             db=db,
-            ura=servico_data['ura'],
-            menu=servico_data['menu']
+            produto_codigo=servico_data.get('produto', ''),
+            menu_nome=servico_data.get('menu', '') or None,
         )
-        
-        # Adiciona o código ao dicionário de dados do serviço
         servico_data['codigo'] = codigo
         
         # Gera o código_servico_produto
@@ -132,12 +203,25 @@ def editar_servico(codigo_servico_produto: str, servico: Servico, db):
             logger.error(f"Serviço não encontrado: {codigo_servico_produto}")
             raise HTTPException(status_code=404, detail="Serviço não encontrado")
 
-        doc_ref = docs[0].reference
-        doc_atual = docs[0].to_dict()
+        doc_snapshot = docs[0]
+        doc_ref = doc_snapshot.reference
+        doc_atual = doc_snapshot.to_dict()
+        # Alguns documentos antigos podem não ter o campo 'codigo' persistido; usa o id do documento como fallback
+        codigo_existente = doc_atual.get('codigo') if isinstance(doc_atual, dict) else None
+        if not codigo_existente:
+            try:
+                codigo_existente = doc_snapshot.id  # id do documento no Firestore
+            except Exception:
+                codigo_existente = None
         servico_data = servico.dict()
 
         # Mantém o código original do serviço
-        servico_data['codigo'] = doc_atual['codigo']
+        # 'codigo' é opcional: só atualiza se existir algum valor conhecido
+        if codigo_existente:
+            servico_data['codigo'] = codigo_existente
+        elif 'codigo' in servico_data and not servico_data['codigo']:
+            # remove o campo vazio para não sobrescrever no Firestore
+            servico_data.pop('codigo', None)
         servico_data['codigo_servico_produto'] = doc_atual['codigo_servico_produto']
 
         # Limpar valores NaN

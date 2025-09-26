@@ -1,24 +1,25 @@
 <template>
-    <div class="min-h-screen bg-[#ffffff] p-4 lg:p-6">
-      <h2 class="text-3xl font-bold text-[#003641] mb-4">Dashboard de Cards</h2>
-      <p class="text-[#003641] mb-6">Visão Resumida</p>
+  <div class="bg-[#ffffff] p-4 lg:p-6 max-w-6xl mx-auto">
+      <h2 class="text-2xl lg:text-3xl font-bold text-[#003641] mb-2">Dashboard de Cards</h2>
+      <p class="text-sm text-[#003641] mb-5">Visão Resumida</p>
   
     <!-- Indicador de carregamento com círculo girando -->
     <div v-if="isLoading" class="flex justify-center items-center h-64">
       <div class="w-12 h-12 border-4 border-t-[#00ae9d] border-[#003641] rounded-full animate-spin"></div>
     </div>
-      <div v-else class="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div class="bg-[#75b62f] p-6 rounded-lg shadow-md text-[#ffffff] text-center">
-          <h3 class="text-lg font-semibold">Total de Serviços</h3>
-          <p class="text-4xl mt-2">{{ servicos.length }}</p>
+      <div v-else class="grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-6">
+        <div class="bg-[#75b62f] p-5 md:p-6 rounded-lg shadow-md text-[#ffffff] text-center">
+          <h3 class="text-sm uppercase tracking-wide opacity-90">Total de Serviços</h3>
+          <p class="text-3xl md:text-4xl mt-2 font-semibold">{{ servicos.length }}</p>
         </div>
-        <div class="bg-[#00ae9d] p-6 rounded-lg shadow-md text-[#ffffff] text-center">
-          <h3 class="text-lg font-semibold">Produto Mais Frequente</h3>
-          <p class="text-2xl mt-2">{{ produtoMaisFrequente }}</p>
+        <div class="bg-[#00ae9d] p-5 md:p-6 rounded-lg shadow-md text-[#ffffff] text-center">
+          <h3 class="text-sm uppercase tracking-wide opacity-90">Produto Mais Frequente</h3>
+          <p class="text-xl md:text-2xl mt-2 font-semibold break-words">{{ produtoMaisFrequente }}</p>
+          <p class="text-xs md:text-sm mt-1 opacity-90">Quantidade: {{ produtoMaisFrequenteCount }}</p>
         </div>
-        <div class="bg-[#c8d400] p-6 rounded-lg shadow-md text-[#003641] text-center">
-          <h3 class="text-lg font-semibold">Menu Mais Usado</h3>
-          <p class="text-2xl mt-2">{{ menuMaisUsado }}</p>
+        <div class="bg-[#c8d400] p-5 md:p-6 rounded-lg shadow-md text-[#003641] text-center">
+          <h3 class="text-sm uppercase tracking-wide opacity-90">Menu Mais Usado</h3>
+          <p class="text-xl md:text-2xl mt-2 font-semibold break-words">{{ menuMaisUsado }}</p>
         </div>
       </div>
     </div>
@@ -58,10 +59,23 @@
     computed: {
       produtoMaisFrequente() {
         const count = this.servicos.reduce((acc, s) => {
-          acc[s.produto] = (acc[s.produto] || 0) + 1;
+          const display = this.getProdutoNome(s.produto);
+          if (!display) return acc;
+          acc[display] = (acc[display] || 0) + 1;
           return acc;
         }, {} as Record<string, number>);
-        return Object.entries(count).sort((a, b) => b[1] - a[1])[0]?.[0] || 'Nenhum';
+        const top = Object.entries(count).sort((a, b) => b[1] - a[1])[0];
+        return top ? top[0] : 'Nenhum';
+      },
+      produtoMaisFrequenteCount() {
+        const count = this.servicos.reduce((acc, s) => {
+          const display = this.getProdutoNome(s.produto);
+          if (!display) return acc;
+          acc[display] = (acc[display] || 0) + 1;
+          return acc;
+        }, {} as Record<string, number>);
+        const top = Object.entries(count).sort((a, b) => b[1] - a[1])[0];
+        return top ? top[1] : 0;
       },
       menuMaisUsado() {
         const count = this.servicos.reduce((acc, s) => {
@@ -75,6 +89,13 @@
       await this.loadData();
     },
     methods: {
+      getProdutoNome(valor: string) {
+        if (!valor) return '';
+        const prod = this.produtos.find(p => p.codigo === valor || p.nome === valor);
+        if (prod) return prod.nome;
+        // Se vier no formato "NN_", não encontrado na lista, mantém o valor cru
+        return valor;
+      },
       async loadData() {
         this.isLoading = true;
         try {

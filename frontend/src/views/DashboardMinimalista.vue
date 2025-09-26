@@ -1,24 +1,25 @@
 <template>
-    <div class="min-h-screen bg-[#ffffff] p-4 lg:p-6 flex flex-col items-center justify-center">
-      <h2 class="text-3xl font-bold text-[#003641] mb-4">Dashboard Minimalista</h2>
-      <p class="text-[#003641] mb-6">KPIs Principais</p>
+    <div class="bg-[#ffffff] p-4 lg:p-6 max-w-5xl mx-auto flex flex-col items-center">
+      <h2 class="text-2xl lg:text-3xl font-bold text-[#003641] mb-2">Dashboard Minimalista</h2>
+      <p class="text-sm text-[#003641] mb-5">KPIs Principais</p>
   
       <!-- Indicador de carregamento com círculo girando -->
       <div v-if="isLoading" class="flex justify-center items-center h-64">
         <div class="w-12 h-12 border-4 border-t-[#00ae9d] border-[#003641] rounded-full animate-spin"></div>
       </div>
-      <div v-else class="flex flex-col md:flex-row gap-8">
+      <div v-else class="flex flex-col md:flex-row gap-6 md:gap-8">
         <div class="text-center">
-          <p class="text-5xl font-bold text-[#003641]">{{ servicos.length }}</p>
-          <p class="text-lg text-[#003641]">Total de Serviços</p>
+          <p class="text-4xl md:text-5xl font-bold text-[#003641]">{{ servicos.length }}</p>
+          <p class="text-sm md:text-lg text-[#003641]">Total de Serviços</p>
         </div>
         <div class="text-center">
-          <p class="text-5xl font-bold text-[#1fa193]">{{ produtoMaisFrequente }}</p>
-          <p class="text-lg text-[#003641]">Produto Dominante</p>
+          <p class="text-3xl md:text-5xl font-bold text-[#1fa193] break-words">{{ produtoMaisFrequente }}</p>
+          <p class="text-sm md:text-lg text-[#003641]">Produto Dominante</p>
+          <p class="text-xs md:text-sm text-[#003641]">Quantidade: {{ produtoMaisFrequenteCount }}</p>
         </div>
         <div class="text-center">
-          <p class="text-5xl font-bold text-[#c5d20e]">{{ menuMaisUsado }}</p>
-          <p class="text-lg text-[#003641]">Menu Dominante</p>
+          <p class="text-3xl md:text-5xl font-bold text-[#c5d20e] break-words">{{ menuMaisUsado }}</p>
+          <p class="text-sm md:text-lg text-[#003641]">Menu Dominante</p>
         </div>
       </div>
     </div>
@@ -57,10 +58,23 @@
     computed: {
       produtoMaisFrequente() {
         const count = this.servicos.reduce((acc, s) => {
-          acc[s.produto] = (acc[s.produto] || 0) + 1;
+          const display = this.getProdutoNome(s.produto);
+          if (!display) return acc;
+          acc[display] = (acc[display] || 0) + 1;
           return acc;
         }, {} as Record<string, number>);
-        return Object.entries(count).sort((a, b) => b[1] - a[1])[0]?.[0] || 'Nenhum';
+        const top = Object.entries(count).sort((a, b) => b[1] - a[1])[0];
+        return top ? top[0] : 'Nenhum';
+      },
+      produtoMaisFrequenteCount() {
+        const count = this.servicos.reduce((acc, s) => {
+          const display = this.getProdutoNome(s.produto);
+          if (!display) return acc;
+          acc[display] = (acc[display] || 0) + 1;
+          return acc;
+        }, {} as Record<string, number>);
+        const top = Object.entries(count).sort((a, b) => b[1] - a[1])[0];
+        return top ? top[1] : 0;
       },
       menuMaisUsado() {
         const count = this.servicos.reduce((acc, s) => {
@@ -74,6 +88,12 @@
       await this.loadData();
     },
     methods: {
+      getProdutoNome(valor: string) {
+        if (!valor) return '';
+        const prod = this.produtos.find(p => p.codigo === valor || p.nome === valor);
+        if (prod) return prod.nome;
+        return valor;
+      },
       async loadData() {
         this.isLoading = true;
         try {

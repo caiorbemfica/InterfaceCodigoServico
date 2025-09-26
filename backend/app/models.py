@@ -29,6 +29,6 @@ class Servico(BaseModel):
     submenu: str
     configuracao: str  # Sem validação
     opcao: str
-    codigo: Optional[str] = None  # Novo campo para armazenar apenas "08_000001"
+    codigo: Optional[str] = None  # Novo campo para armazenar apenas "1_080001"
     codigo_servico_produto: Optional[str] = None
     tema: Optional[str] = None

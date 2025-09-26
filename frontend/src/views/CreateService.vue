@@ -6,30 +6,38 @@
         <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div>
             <label class="block text-[#003641] font-medium mb-2">Produto/Tema:</label>
-            <select 
-              v-model="form.produto" 
-              required 
-              class="border border-[#75b62f] p-3 w-full rounded-lg focus:ring-2 focus:ring-[#1fa193] focus:border-transparent"
-            >
-              <option v-for="produto in produtos" 
-                :key="produto.codigo" 
-                :value="produto.codigo"
+            <template v-if="!isEdit">
+              <select 
+                v-model="form.produto" 
+                required 
+                class="border border-[#75b62f] p-3 w-full rounded-lg focus:ring-2 focus:ring-[#1fa193] focus:border-transparent"
+                @change="onProdutoChange"
               >
-                {{ produto.nome }}
-              </option>
-            </select>
+                <option v-for="produto in produtos" 
+                  :key="produto.codigo" 
+                  :value="produto.codigo"
+                >
+                  {{ produto.nome }}
+                </option>
+              </select>
+            </template>
+            <template v-else>
+              <input 
+                type="text"
+                :value="productNomeSelecionado"
+                readonly
+                class="border border-[#75b62f] p-3 w-full rounded-lg bg-gray-100 text-[#003641] cursor-not-allowed"
+              />
+            </template>
           </div>
           <div>
             <label class="block text-[#003641] font-medium mb-2">URA:</label>
-            <select 
-              v-model="form.ura" 
-              required 
-              class="border border-[#75b62f] p-3 w-full rounded-lg focus:ring-2 focus:ring-[#1fa193] focus:border-transparent"
-              @change="loadMenus"
-            >
-              <option value="">Selecione uma URA</option>
-              <option v-for="ura in uras" :key="ura" :value="ura">{{ ura }}</option>
-            </select>
+            <input 
+              type="text"
+              v-model="form.ura"
+              readonly
+              class="border border-[#75b62f] p-3 w-full rounded-lg bg-gray-100 text-[#003641] cursor-not-allowed"
+            />
           </div>
           <div>
             <label class="block text-[#003641] font-medium mb-2">Caminho:</label>
@@ -43,7 +51,9 @@
                 type="text"
                 class="border border-[#75b62f] p-3 w-full rounded-lg focus:ring-2 focus:ring-[#1fa193] focus:border-transparent"
                 placeholder="Digite para buscar ou criar novo menu"
-                @input="filterMenus"
+                @input="onMenuInput"
+                @focus="openMenuDropdown"
+                @blur="closeMenuDropdownDelayed"
               />
               <div v-if="filteredMenus.length && showMenuDropdown" 
                 class="absolute z-10 w-full bg-white border border-gray-200 rounded-lg mt-1 max-h-60 overflow-y-auto">
@@ -128,7 +138,7 @@
 <script lang="ts">
 import { defineComponent, ref } from 'vue'
 import axios from 'axios'
-import { cache } from '@/servicesCache'
+import { cache, getProdutos } from '../servicesCache'
 import { Produto, Servico } from '@/types'
 
 interface FormState {
@@ -176,13 +186,14 @@ export default defineComponent({
       menuSearch: '',
       filteredMenus: [] as string[],
       showMenuDropdown: false,
+      productNomeSelecionado: '',
     }
   },
   async mounted() {
     this.isLoading = true
     try {
-      // Carregar produtos
-      this.produtos = (await axios.get<Produto[]>('http://127.0.0.1:8000/produtos')).data
+      // Carregar produtos usando cache
+      this.produtos = await getProdutos()
       
       // Carregar URAs únicas
       this.uras = [...new Set(cache.servicos.map(s => s.ura))].sort()
@@ -194,10 +205,14 @@ export default defineComponent({
         const servicoResponse = await axios.get<Servico[]>(`http://127.0.0.1:8000/servico/${codigo}`)
         const servico = servicoResponse.data[0]
         
+        // Mapeia produto de nome -> código (backend pode retornar nome em edições)
+        const produtoMatch = this.produtos.find(p => p.codigo === servico.produto || p.nome === servico.produto)
+        const produtoCodigo = produtoMatch ? produtoMatch.codigo : servico.produto
+
         this.form = {
           ura: servico.ura,
           caminho: servico.caminho,
-          produto: servico.produto,
+          produto: produtoCodigo,
           menu: servico.menu,
           submenu: servico.submenu,
           configuracao: servico.configuracao,
@@ -211,6 +226,10 @@ export default defineComponent({
         this.isEdit = true
         this.updateOpcao()
         await this.loadMenus()
+        // Preenche o campo de busca/visualização do menu no modo edição
+        this.menuSearch = this.form.menu
+        // Define o nome do produto selecionado para exibição somente leitura
+        this.productNomeSelecionado = produtoMatch ? produtoMatch.nome : servico.produto
       }
     } catch (error: any) {
       alert('Erro ao carregar dados: ' + error.message)
@@ -219,6 +238,58 @@ export default defineComponent({
     }
   },
   methods: {
+    onProdutoChange() {
+      // Deriva URA "genérica" a partir do nome do produto (ex.: "URA SIPAG 2.0" -> "URA SIPAG")
+      const selected = this.produtos.find(p => p.codigo === this.form.produto)
+      if (!selected) {
+        this.form.ura = ''
+        this.menus = []
+        this.menuSearch = ''
+        this.filteredMenus = []
+        return
+      }
+
+      const nomeUpper = selected.nome.toUpperCase().trim()
+      let baseUra = nomeUpper
+      if (nomeUpper.startsWith('URA ')) {
+        const rest = nomeUpper.slice(4).trim() // após 'URA '
+        const tokens = rest.split(/\s+/)
+        // Caso especial: "URA CARTOES <BANCO> [VIP|BLACK|...]" → preservar sufixos (não ignorar)
+        if (tokens[0] === 'CARTOES') {
+          const banco = tokens[1] || ''
+          const sufixo = tokens[2] && ['VIP', 'BLACK'].includes(tokens[2]) ? ` ${tokens[2]}` : ''
+          baseUra = `URA CARTOES ${banco}${sufixo}`.trim()
+        } else {
+          // Regra geral: "URA <CATEGORIA> ..." → "URA <CATEGORIA>"
+          const categoria = tokens[0] || ''
+          baseUra = `URA ${categoria}`
+        }
+      }
+
+      // Procura uma URA existente que combine
+      const candidateExact = this.uras.find(u => u.toUpperCase() === baseUra)
+      const needle = baseUra.replace('URA ', '').trim()
+      const candidateContains = this.uras.find(u => u.toUpperCase().includes(needle))
+
+      if (candidateExact) {
+        this.form.ura = candidateExact
+      } else if (candidateContains) {
+        this.form.ura = candidateContains
+      } else {
+        // Fallback: tenta pelos serviços existentes com o mesmo produto (comportamento antigo)
+        const matchingService = cache.servicos.find(s => s.produto === this.form.produto)
+        this.form.ura = matchingService ? matchingService.ura : ''
+      }
+
+      // Carrega menus conforme a URA definida
+      if (this.form.ura) {
+        this.loadMenus()
+      } else {
+        this.menus = []
+        this.menuSearch = ''
+        this.filteredMenus = []
+      }
+    },
     updateOpcao() {
       if (this.form.tipo && this.form.opcaoNome) {
         this.form.opcao = `${this.form.tipo}-${this.form.opcaoNome}`
@@ -227,6 +298,11 @@ export default defineComponent({
     async submitForm() {
       this.isLoading = true
       try {
+        // Se o usuário digitou um novo menu e não clicou na lista, usa o texto digitado
+        if (!this.form.menu && this.menuSearch) {
+          this.form.menu = this.menuSearch.trim()
+        }
+
         const payload: Servico = { 
           ...this.form, 
           opcao: this.form.opcao,
@@ -268,6 +344,7 @@ export default defineComponent({
         const response = await axios.get<string[]>(`http://127.0.0.1:8000/menus/${this.form.ura}`)
         this.menus = response.data
         this.filterMenus()
+        this.showMenuDropdown = false
       } catch (error: any) {
         console.error('Erro ao carregar menus:', error)
       }
@@ -281,7 +358,24 @@ export default defineComponent({
           menu.toLowerCase().includes(this.menuSearch.toLowerCase())
         )
       }
-      this.showMenuDropdown = true
+    },
+
+    openMenuDropdown() {
+      if (this.filteredMenus.length) {
+        this.showMenuDropdown = true
+      }
+    },
+
+    closeMenuDropdownDelayed() {
+      // Aguarda clique no item antes de fechar
+      setTimeout(() => {
+        this.showMenuDropdown = false
+      }, 150)
+    },
+
+    onMenuInput() {
+      this.filterMenus()
+      this.openMenuDropdown()
     },
     
     selectMenu(menu: string) {

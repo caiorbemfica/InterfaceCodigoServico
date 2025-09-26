@@ -32,16 +32,26 @@
         <table class="w-full border-collapse">
           <thead>
             <tr class="bg-[#75b62f] text-white">
-              <th class="border border-[#75b62f] p-3 font-semibold">Código</th>
-              <th class="border border-[#75b62f] p-3 font-semibold">Nome</th>
+              <th class="border border-[#75b62f] p-3 font-semibold text-center">
+                <button 
+                  @click="toggleSort" 
+                  class="flex items-center justify-center gap-2 hover:text-gray-200 transition-colors mx-auto"
+                >
+                  Código
+                  <span class="text-sm">
+                    {{ sortOrder === 'asc' ? '↑' : '↓' }}
+                  </span>
+                </button>
+              </th>
+              <th class="border border-[#75b62f] p-3 font-semibold text-center">Nome</th>
             </tr>
           </thead>
           <tbody>
-            <tr v-for="produto in produtos" :key="produto.codigo" class="hover:bg-gray-50">
-              <td class="border border-[#75b62f] p-3 text-[#003641]">{{ produto.codigo }}</td>
-              <td class="border border-[#75b62f] p-3 text-[#003641]">{{ produto.nome }}</td>
+            <tr v-for="produto in sortedProdutos" :key="produto.codigo" class="hover:bg-gray-50">
+              <td class="border border-[#75b62f] p-3 text-[#003641] text-center">{{ produto.codigo }}</td>
+              <td class="border border-[#75b62f] p-3 text-[#003641] text-center">{{ produto.nome }}</td>
             </tr>
-            <tr v-if="produtos.length === 0">
+            <tr v-if="sortedProdutos.length === 0">
               <td colspan="2" class="border border-[#75b62f] p-3 text-center text-[#003641]">
                 Nenhum produto encontrado
               </td>
@@ -57,9 +67,10 @@
 </template>
 
 <script lang="ts">
-import { defineComponent, ref } from 'vue'
+import { defineComponent, ref, computed } from 'vue'
 import axios from 'axios'
 import { Produto } from '@/types'
+import { getProdutos, invalidateProdutosCache } from '@/servicesCache'
 
 export default defineComponent({
   name: 'Products',
@@ -73,6 +84,7 @@ export default defineComponent({
       produtos: [] as Produto[],
       newProductName: '',
       createMessage: '',
+      sortOrder: 'asc' as 'asc' | 'desc', // 'asc' para crescente, 'desc' para decrescente
     }
   },
   async mounted() {
@@ -90,10 +102,20 @@ export default defineComponent({
       this.isLoading = false
     }
   },
+  computed: {
+    sortedProdutos() {
+      return [...this.produtos].sort((a, b) => {
+        if (this.sortOrder === 'asc') {
+          return a.codigo.localeCompare(b.codigo)
+        } else {
+          return b.codigo.localeCompare(a.codigo)
+        }
+      })
+    }
+  },
   methods: {
     async fetchProducts() {
-      const response = await axios.get<Produto[]>('http://127.0.0.1:8000/produtos')
-      this.produtos = response.data
+      this.produtos = await getProdutos()
     },
     async createProduct() {
       this.isLoading = true
@@ -102,7 +124,11 @@ export default defineComponent({
           nome: this.newProductName,
         })
         this.createMessage = response.data.mensagem
-        this.produtos.push(response.data.produto)
+        
+        // Invalidar cache e recarregar produtos
+        invalidateProdutosCache()
+        await this.fetchProducts()
+        
         this.newProductName = ''
         setTimeout(() => (this.createMessage = ''), 4000)
       } catch (error: any) {
@@ -111,6 +137,9 @@ export default defineComponent({
       } finally {
         this.isLoading = false
       }
+    },
+    toggleSort() {
+      this.sortOrder = this.sortOrder === 'asc' ? 'desc' : 'asc'
     },
   },
 })
